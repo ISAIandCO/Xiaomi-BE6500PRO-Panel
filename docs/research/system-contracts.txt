@@ -1,0 +1,229 @@
+RD08 1.1.123 — native system controls (offline verified contracts)
+2026-11-08. Corrected research/fate123.py loader plus stock UI templates.
+No router setter, upload, reboot, reset, firmware install, root or SSH executed.
+All rootfs-relative paths below refer to the supplied official1.1.123 image.
+
+REBOOT AND RESET
+Stock luci/view/web/inc/reboot.js.htm:
+  GET xqsystem/reboot {client:'web'}
+    -> {code:0,lanIp:[{ip:...},...]}, closes response, forks reboot.
+  GET xqsystem/reset {format:'0'|'1'}
+    format0 standard factory reset; format1 also formats userdisk/storage.
+The reset controller resets smartcontroller scenes, sends Mesh restore/event
+notifications and runs the configured FORK_RESET_ALL command. It is not a
+single-device cosmetic settings reset. Require an unmistakable final user
+confirmation naming factory reset/network loss and format-storage effect.
+Never invoke either route while validating support or on a tab opening.
+Both can be implemented as allowlisted explicit controls; actual execution is
+outside this research task's prior non-disruption boundary.
+
+ADMIN PASSWORD: USE THE RIGHT API
+misystem/password is loopback-only: changePassword requires REMOTE_ADDR to be
+127.0.0.1 before savePlaintextPwd. Do not expose it as LAN admin password API.
+Normal stock UI is web/inc/password.js.htm using:
+  POST xqsystem/set_name_password
+  {nonce,oldPwd,newPwd,newPwd256}
+Stock password.htm validation: new password8..63 bytes, confirm matching,
+oldPwd required; passwd_strong feature optionally adds stricter composition.
+Do not silently sync Wi-Fi passwords: this operation changes management only.
+
+Exact stock g.js.htm Encrypt algorithm, lines228–281:
+  public salt = a2ffa5c9be07488bbb04a3a47d3c5f6a
+  public IV hex = 64175472480004614961023454661220
+These are vendor protocol constants, not user credentials.
+  nonce = '0_'+clientMAC+'_'+unixSeconds+'_'+randomInteger0to9999
+clientMAC is the same router-observed remote MAC embedded in the login page;
+do not use router LAN MAC. Generate a fresh nonce, don't reuse a login nonce.
+  H = SHA256 if init_info.newEncryptMode==1, otherwise SHA1
+  oldPwd = H(nonce + hex(H(oldPlain + publicSalt)))
+For newPwd:
+  oldHash = hex(SHA1(oldPlain+salt))
+  newHash = hex(SHA1(newPlain+salt))
+  AES key = bytes.fromHex(oldHash.slice(0,32)) ->16 bytes
+  newPwd = Base64(AES-128-CBC-PKCS7(key,IV,UTF8(newHash)))
+For newPwd256 repeat using SHA256 instead ofSHA1, still first16 key bytes.
+IMPORTANT: AES plaintext is the ASCII/UTF-8 hexadecimal hash string, not the
+20-/32-byte binary digest. Send both newPwd and newPwd256 as stock UI does.
+Node built-in crypto can reproduce this without adding dependencies.
+
+Controller _savePassword checks checkNonce(nonce,getremotemac()), then
+checkUser('admin',nonce,oldPwd). In new mode1 it saves legacy ciphertext and
+new SHA256 ciphertext; on success forks whc_to_re_common_api.sh webpasswd_update
+to synchronize Mesh management password. Relevant errors:
+  1502 missing fields,1523 absent nonce,1552 old password wrong,
+  1553 save/decrypt failed,1582 invalid nonce.
+Never put plaintext or hashes in changes/previews/exports/logs. A preview can
+say only that the management password will change. Keep submitted values in
+RAM for the one-use ticket and clear them after completion/error/expiry.
+
+SESSION INVALIDATION
+No explicit kill-all-sessions occurs in setPassword/_savePassword or the
+saveCiphertextPwd/saveCiphertextLegacyPwd persistence paths. They update
+xiaoqiang account/legacy preference data and synchronize Mesh.
+luci.sauth.read validates session data/atime/expiry, not the current password.
+Dispatcher's existing-stok path reads the session and compares stok/token,
+source IP and user; it does not rehash the new management password each time.
+Therefore do NOT claim that changing password invalidates all existing router
+sessions. The local panel should explicitly logout its current vendor session,
+clear its pending tickets/sensitive state and require login with the new
+password. Clearing every panel-owned session is appropriate. Other router
+clients' sessions were not experimentally tested and should not be described
+as revoked automatically. No password change was performed.
+
+FIRMWARE CHECK, UPLOAD AND FLASH
+GET xqsystem/check_rom_update returns {code,status:{status,percent},...}
+from XQNetUtil.checkUpgrade with metadata including needUpdate,downloadUrl,
+fullHash,hash,fileSize,version,description,changelogUrl,buildTime.
+The helper contacts Xiaomi with model/build/device metadata (including device
+ID/serial info) and may update the update-message indicator; make this an
+explicit 'Check Xiaomi updates' action rather than an automatic local read.
+It does not itself stage an image, flash or reboot.
+
+POST multipart/form-data xqsystem/upload_rom, FILE FIELD image.
+Stock upload URL can be prefixed /uploadfile when nginx upload module is used;
+the direct LuCI multipart path is the other built-in mode.
+uploadRom stages to getUploadRomFilePath, then verifyImage and checkRomVersion,
+returns {code,msg,downgrade?}. There is no flash.sh/forkReboot call in this
+handler; flash is a separate step. However upload itself IS NOT harmless:
+  it executes /usr/sbin/kill_plugin_process.sh BEFORE validation.
+That script changes vm.min_free_kbytes to512 (except modelR4A), syncs, drops
+caches and kills PIDs in /dev/cgroup/cpu/plugin/tasks. Thus an upload can stop
+plugins even if the image is invalid. Disclose before upload and do not use
+upload_rom as a background validation/probe. No upload was attempted.
+
+GET xqsystem/flash_rom:
+  custom='1' -> staged uploaded image; custom0/default -> cached OTA image
+  recovery='1' -> append second flash.sh argument1 -> RESTORE DEFAULTS
+  recovery0/default -> preserve settings
+Checks getFlashStatus and file presence, returns JSON before closing response,
+then sysLock + forkExec('flash.sh '+path+optional' 1').
+bin/flash.sh usage: input.bin [1:restore defaults,0:don't]
+[1:don't reboot,0:reboot]. Controller never supplies third argument, so a real
+successful flash reboots. Do not mislabel recovery1 as 'keep settings'.
+Failures may unlink the staged image. Never retry flash automatically.
+
+GET xqsystem/flash_status -> {code:0,status:<native number>}:
+  getFlashStatus returns1 while flash process running,2 if upgraded-sentinel
+  says completed,0 if no process/pid marker,3 if residual pid marker remains.
+GET xqsystem/upgrade_status -> {code:0,status,percent?}:
+  percent from downloadPercent at status3; from getFlashProgress at status5.
+Other native states should remain clearly labeled until mapped from stock
+upgrade.js, rather than guessed. Poll only during an explicit upgrade flow.
+
+Online-upgrade alternative xqsystem/upgrade_rom accepts url,filesize,hash,
+needpermission (these dynamic literal fields were missing from older static
+inventory). It sysLocks and invokes crontab_rom.sh with a selected/canonical
+URL or with no args to let the native updater select metadata. This is an
+upgrade workflow, not a passive URL checker. Never accept arbitrary browser
+URLs/commands: bind any online upgrade request to a server-captured Xiaomi
+update result and describe download/install/reboot effects before approval.
+The user's no-flash boundary prevents hardware verification in this task.
+
+CONFIGURATION RESTORE IS TWO STAGES
+POST multipart/form-data misystem/c_upload, FILE FIELD image (native gzip/tar
+backup). Optional is_tr069 flag belongs to carrier flow; do not expose it.
+Controller creates a temporary target directory, writes image, extracts and
+checks it with XQBackup.extract, calls getdes, returns {code:0,des:...}.
+It does not call restore. It can return backup sections compatible with this
+device; don't replace native validation with extension-only checks.
+
+GET misystem/c_restore {keys:'mi_basic_info,mi_wifi_info,...'}:
+XQBackup.restore(nil,selectedKeys) reads the staged encrypted blob, REMOVES
+that staged blob before decrypting, decrypts with the device key and invokes
+selected section setters. So the staged restore is single-use, including
+failed decryption. Errors1628 stage missing,1629 decrypt/parse problem.
+Returns {code:0,ip:<new/current LAN IP>} on success.
+No direct reboot is in cRestore or XQBackup.restore, but callbacks change UCI
+settings (including management password/LAN/WAN/Wi-Fi) and at least one can
+restart vlan_service. Do not promise connectivity survives until a later
+reboot. Stock sysinfo.js displays success and only then offers reboot_window.
+Allowlist keys returned by native des and supported local scope; do not
+restore arbitrary hidden sections. Native module known groups include
+mi_basic_info,mi_wifi_info,mi_network_info,mi_lan_info,mi_arn_info,
+mi_access_info,mi_mobile_info,mi_sms_info; last two are other-model features.
+Drop panel session after applying access/password/LAN restoration; don't try
+to silently recover by resending a consumed restore request.
+
+OTA AUTOMATIC PREFERENCES
+GET misystem/ota -> {code:0,auto,time,plugin}.
+POST misystem/set_ota -> {auto:'0'|'1',time:'0'..'23',plugin:'0'|'1'}.
+XQPredownload.setPredownload(nil,auto,time,plugin) writes otapred.settings.auto,
+time (integer hour0<=time<24),plugin and commits. It does not install firmware
+immediately, but enabling automatic updates permits FUTURE unattended updates
+and reboots; the UI must state that consequence. misystem also syncs OTA info
+and propagates Mesh settings. Legacy xqsystem/set_ota only sets auto and should
+not replace the richer current interface.
+
+TIME / TIMEZONE
+GET misystem/sys_time returns current time object (year/month/day/hour/min/sec,
+timezone,index and related fields).
+POST misystem/set_sys_time {time:'YYYY-MM-DD HH:MM:SS'} changes clock only.
+Native utility accepts a strict digits/dashes/colon pattern and calls date -s;
+the panel should additionally reject nonexistent dates and control characters.
+Date/time is interpreted in the ROUTER'S current timezone, not browser UTC.
+
+POST misystem/set_sys_time {timezone:<POSIX TZ string>,index:'2.N'} changes zone.
+Critical implementation detail: XQSysUtil.setSysTime(time,timezone,index) first
+looks up UCI timezone[index.replace('.','_')].tz; this lookup is authoritative.
+Do not accept an arbitrary POSIX string or an arbitrary unmatched index.
+Authoritative supplied mapping is etc/config/timezone with113 entries
+2.1..2.113. Stock sysinfo.js TIMEZONEMAP is slightly older; bundle/extract the
+firmware UCI mapping rather than hardcoding browser IANA names.
+Names use z_name offset plus list name labels; map by index. Same POSIX TZ may
+have several indexes, so a timezone-string-only reverse lookup is ambiguous.
+Setter updates system timezone/index/tz data, enables NTP, commits system,
+restarts /etc/init.d/timezone and synchronizes Mesh time settings. Timezone
+changes affect every saved schedule. Preserve current date/time when only
+changing zone according to native behavior; don't apply browser local time
+implicitly. Use paired known index/tz and existing router clock for previews.
+
+PRIVACY AND NOTIFICATIONS
+GET xqsystem/privacy -> {code:0,privacy:0|1}.
+POST xqsystem/set_privacy_new {privacy:'0'|'1'} (legacy set_privacy same storage).
+XQSysUtil stores XQPreference PRIVACY as string1/0. Stock initial UI chunk
+www/static/js/21.8fdfd67f2a1ddfc890d5.js labels planProtocal as joining the
+User Experience Improvement Program and sends privacy:planProtocal?1:0.
+Therefore label this as participation/diagnostic-program consent, not as a
+firewall, encryption or universal 'privacy protection' toggle. No claim that
+it controls all Xiaomi telemetry is supported.
+
+GET xqsystem/push_settings -> {code:0,auth:0|1,quiet:0|1}.
+POST xqsystem/push_switch {auth:'0'|'1',quiet:'0'|'1'} writes supplied numeric
+flags into devicelist.settings and commits; omitted flags are preserved.
+auth is used by XQPushHelper for new/unknown device notifications and failed
+Wi-Fi/admin login push flows. It is not admin-authentication enable/disable.
+quiet is the native quiet-notification flag; specific hours/phone behavior
+were not proven. Do not invent a schedule or promise messages without a bound
+Xiaomi account/app receiving them.
+POST xqsystem/dev_notify {mac:<known MAC>,notify:'0'|'1'} updates special device
+notification preference, syncs device info with push status. Getter data is
+the normal device record's push/notify flags where available; don't claim a
+notification was actually delivered. No cloud account was used here.
+
+FORCED HTTPS
+GET xqsystem/get_access_force_https -> {code:0,on:0|1}.
+POST xqsystem/set_access_force_https {on:'0'|'1'} writes nginx.main.force_https,
+commits and forks /etc/init.d/nginx restart. Temporary UI/API interruption is
+expected; no automatic retry of the setter. This is the stock management
+redirect/access option; the panel already uses pinned HTTPS independently.
+Do not disable the panel's certificate pin when changing this option.
+
+IMPLEMENTATION BOUNDARY
+All listed contracts can be represented by explicit validated controls except
+where noted unresolved state labels. Implementing controls does not prove
+physical write behavior. Reboot/reset/firmware/restore/password actions must
+be excluded from automated hardware smoke tests. Upload staging has material
+side effects described above; it is not a safe capability probe.
+
+TIMEZONE DATA DELIVERED
+6500pro_router-panel/timezones.json contains all113 exact source index/tz
+pairs in firmware order, with Russian labels and UTC offsets. City names are
+translated from the native table; its ambiguous 阿伊恩 is transliterated Айн
+without inventing an unrelated canonical city. Standard/DST offsets in labels
+are derived from the unchanged POSIX tz rules, not blindly from native z_name.
+That corrects misleading native display offsets in2.40/2.41,2.66,2.100,
+2.101,2.104,2.113 without modifying actual timezone behavior.
+Self-checks verified every index/tz pair against source,113 unique entries,
+Russian labels/no Chinese or HTML, Екатеринбург2.75 and DST/offset cases.
+The firmware rules may themselves be old for some countries; this artifact
+intentionally preserves those exact rules rather than changing router policy.

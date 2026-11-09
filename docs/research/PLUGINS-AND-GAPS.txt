@@ -1,0 +1,52 @@
+ПЛАГИНЫ RD08 — ИТОГ1.2.0 / 09.11.2026
+
+Реализовано: настоящий каталог installed_plug, локальная проверка HDR1/MIPK
+(подписи, CRC, модель/ROM/SDK, безопасная структура ZIP), отдельная явная
+передача подписанного пакета штатному загрузчику. При system.infileupload=1
+выбирается /uploadfile/cgi-bin/luci/...; обычный маршрут ограничен50КиБ,
+nginx infile в этом образе настраивается UCI client_max_body_size=100M.
+Установка на реальном устройстве не выполнялась: vendor-signed образца нет.
+Hosts — встроенная запись каталога; обычный admin получает1500 у Hosts SDK.
+Условия SDK ACL проверяются до стандартной web-сессии, разрешение не обойдёно.
+
+Собственный пример: 6500pro_router-panel/examples/rd08-status и кнопка
+«Скачать исходник примера». Он читает uptime и пишет JSON в свой каталог.
+Подготовлены Xiaomi DSL start_script, POSIX worker, manifest проекта,
+инструкция о Linux-правах, AppID, SDK и подписи. Готового installable файла
+нет. Старый официальный packager2014 создаёт rawMIPK/signType0; текущий
+pluginmanager требует1, а веб-путь дополнительно HDR1. Современный процесс
+подписания/распространения Xiaomi не подтверждён. Подмена расширения,
+самоподпись и сертификаты eMudhra/TLS не заменяют встроенные ключи Xiaomi.
+
+Различия
+• Home React Native plugin управляет интерфейсом телефона, не равен native.mpk.
+• NetEase UU / Youbangbang — отдельные игровые службы с авторизацией.
+• Central software pack0.11.5 — отдельный контейнер и Bluetooth gateway.
+• Mi-Stat_Max — браузерный userscript, ShellCrash требует системных прав.
+• Внешняя API-панель работает на ПК без установки своего кода в роутер.
+Root/SSH, изменение firmware или установка сторонних программ не выполнялись.
+
+Bluetooth
+Подтверждён локальный путь UDP54321→miio_client→TCP54323→miio_bt.
+В панели реализован ввод собственного miIO-токена, чтение состояния/версии
+и переключение только после успешного чтения с обязательным readback.
+Токен хранится в RAM; его получить штатным admin getter не удалось.
+Политика RPC, bound и наличие miio_bt могут сделать путь недоступным.
+На реальном роутере miIO-транспорт не проверялся. Версия BT SDK не равна
+версии Central software pack. Облачного serviceToken/OAuth/cert у панели нет.
+
+Оставшиеся границы
+Офлайн-клиент delete, отдельные Mesh-node reboot/rename/delete, cloud-привязка,
+remote management, игровые lifecycle и Central OAuth не имеют подтверждённого
+доступного контракта с имеющимися данными/правами. Произвольного JSON-туннеля
+или неработающих переключателей в панели нет. Основной перечень и проверка —
+6500pro_router-panel/REPORT.txt и FUNCTION-MATRIX.csv.
+
+Первичные материалы
+plugin-contracts.txt — точные локальные RSA/MIPK/SDK проверки.
+security-miio-udp-feasibility.txt — UDP и BT dispatch, условия и9 тестов.
+security-service-auth.txt — SDK flag16 и MAC ACL.
+https://dev.mi.com/docs/routerplugin/user_guide/
+https://bigota.miwifi.com/xiaoqiang/sdk/tools/sdk_package.zip
+https://github.com/ucxn/Mi-Stat_Max
+https://github.com/juewuy/ShellCrash

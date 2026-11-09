@@ -1,0 +1,208 @@
+RD08 1.1.123 — remaining network contracts (offline research)
+2026-11-08. No router calls or writes were performed by this research task.
+
+Evidence rules
+The source is the provided official image under Прошивки/miwifi_rd08_1.1.123/
+02_root/ubi_rootfs_files. Decompiled control flow is unreliable; especially
+LT-looking operations sometimes represent type/inequality checks in the vendor
+bytecode. Use stock template requests, actual field names and literal values as
+the strongest evidence. Do not infer supported functions merely from bodies.
+Raw disassemblies are saved as research/network-*-bytecode.txt.
+
+1. Weak-client Wi-Fi policy — implementation-ready
+POST xqnetwork/set_wifi_weak:
+  wifiIndex: '1' for 2.4GHz, '2' for 5GHz
+  weakenable: '0'|'1'
+  weakthreshold: signed integer dBm, association refusal threshold
+  kickthreshold: signed integer dBm, existing-client kick threshold
+Exact stock apsetting/roam.htm inputs:
+  2.4GHz: weakthreshold -95..-65; kickthreshold -100..-70
+  5GHz: weakthreshold -85..-55; kickthreshold -90..-60
+Both negative values must be explicit. Current getter's zero means unconfigured,
+not a valid value to submit when enabling. Preserve existing values or require
+entry; do not silently submit zero with on=1. A sensible guard is kickthreshold
+<=weakthreshold, to avoid a client being accepted only to be immediately kicked.
+Utility setWifiWeakInfo stores all supplied fields under the chosen wireless
+network, saves/commits wireless; controller calls forkRestartWifi on success.
+GET xqnetwork/get_wifi_weak returns {code:0, info:[{weakenable,weakthreshold,
+kickthreshold}, ...]} in 2.4GHz then5GHz order.
+Evidence: luci/view/web/apsetting/roam.htm lines53–92 and194–202;
+xiaoqiang/util/XQWifiUtil.lua setWifiWeakInfo/getWifiWeakInfo;
+controller setWifiWeakInfo raw disassembly.
+
+2. Channel quality scan / application
+xqnetwork/channel_scan_start (no params) is an explicit active diagnostic;
+utility starts `sleep 4; iwpriv wl1 acsreport 1`. Do not auto-trigger on tab open.
+xqnetwork/channel_scan_result (no params) returns {code:0,status:0|1,
+'2G':{code,cchannel,schannel,cscore,sscore,ranking}}. Getter currently evaluates
+2.4GHz (first radio) only; do not label it a complete dual-band survey.
+The inner scan result code1 means incomplete/no parseable scan data.
+xqnetwork/set_channel accepts channel1/channel2 numeric, but the actual
+iwprivSetChannel utility body only applies channel1 / wl1. It updates bandwidth,
+autoch=0 and channel, then forks an iwconfig command. Do not claim this legacy
+route applies both bands. Existing set_all_wifi UI is the better supported
+dual-band channel workflow; validate against actual available_channels and DFS.
+Evidence: research/network-channelScanStart.lua, network-getScanResult.lua,
+network-setChannel.lua and XQWifiUtil bytecode examined directly.
+
+3. Mesh switch / legacy roaming RSSI
+GET xqnetwork/get_mesh_switch returns enabled:
+  2 specifically when XQFunction.isMeshMode() is true
+  otherwise tonumber(xiaoqiang.common.MESH_SWITCH or '1')
+POST xqnetwork/set_mesh_switch accepts on=0|1; if isMeshMode() it logs and
+does not change anything. State3 has a special no-change guard as well.
+Therefore expose state2 as 'Already in Mesh mode', not false/Off, and disable
+the simple switch in states2/3. For standalone state0/1 the setter writes UCI,
+commits xiaoqiang and sends ubus mapd mesh_switch 0/1.
+Evidence: network-meshswitch-bytecode.txt; controller setMeshSwitch disassembly.
+
+GET xqnetwork/get_roam_rssi_threshold returns RoamRssiThreshold2G and
+RoamRssiThreshold5G, signed values (live parent observed -60/-60).
+POST xqnetwork/set_roam_rssi_threshold accepts roamrssithreshold1 and
+roamrssithreshold2, adds95 internally and writes HighRssi24GThreshold,
+HighRssi5GThreshold and BandSteering* threshold UCI keys, then restarts mapd.
+Stock threshold forms limit each to -95..-50 dBm. However the RD08 stock
+setting/wifi.htm actually submits the newer get/set_aimesh_config API,
+which is already implemented. Do not mix the two threshold stores in one
+control or pretend changing legacy values changes newer manual roaming.
+
+4. Mesh discovery / add / status
+xqnetwork/scan_mesh_node returns {code:0,list:[...]}; it calls mesh_get_scanlist,
+which can enable the backhaul AP (`mesh_bh_enable`) if previously disabled and
+updates discovery via xq_info_sync_mqtt relist. This is not a passive getter;
+offer an explicit action with the backhaul discovery effect disclosed.
+Rows originate from mesh_relist and have at least mac/ssid; additional fields
+depend on model/version. Do not require invented row fields.
+POST xqnetwork/add_mesh_node: mac=<valid individual MAC>, locate=<location>,
+locate uses ?commonstr. It removes a /tmp/<MAC-without-colons>-status file and
+dispatches mesh_ver4_add_node or mesh_add_node based on the discovered node.
+It changes network topology; only accept a freshly discovered MAC.
+xqnetwork/get_addnode_status: mac=<selected MAC>; returns {code:0,status:...}.
+On controller mode it may request status resend for older-version nodes, so
+use only during an explicit add workflow, not for arbitrary probing.
+No second node exists for a real pairing test. Do not claim pairing tested.
+
+5. Client node/band binding — exact schema available
+Feature gate wifi.wifi_access_ctl='1'.
+GET xqnetwork/get_sta_bindinfo with sta_mac=<client MAC> returns:
+  {code:0,associnfo:...,bindinfo:{bind_node,bind_band,bind_mac},meshnode:[...]}
+Without sta_mac it is not a complete all-client binding list.
+POST xqnetwork/set_sta_bindinfo fields:
+  stamac=<client MAC>
+  bindNode=<descriptive selected-node name or 'none'>
+  bindMac=<selected node LAN MAC or 'none'>
+  bindBand='2G'|'5G'|'none'
+All fields are required. All three bind fields='none' removes the binding.
+Maximum128 wifiaccess wifi-sta entries. BindMac and client MAC are checked
+with macaddr in stock controller. BindNode is stored/displayed metadata;
+bindMac is what the application shell uses to choose the node. Prefer taking
+both from the freshly read meshnode row. Rows contain router_name, model,
+mac, support_accessCtl, cap, wifiup,guest,location; show only supported nodes.
+The utility commits wifiaccess, syncs MQTT config, then invokes
+applyWifiAccessPolicy.sh applyItem <stamac> <bindMac> <bindBand>.
+Band/node binding installs ACLs and can kick clients immediately, including
+the panel computer; block binding changes for its own MAC.
+Evidence: network-bind-bytecode.txt and full sbin/applyWifiAccessPolicy.sh.
+
+6. Multi-WAN device policies / weights
+Feature gate system.multiwan='1'. Existing current ps_service should be used
+for port assignments and global mode changes. Stock dual-wan.js.htm confirms:
+  mode0 balanced;1 WAN1 priority;2 WAN2 priority;3 WAN1 only;4 WAN2 only.
+GET get_multiwan_basic_info -> {code:0,info:{enable,policy,currwan,weight1,
+weight2,bandwidth_wan1,bandwidth_wan2}}.
+GET get_multiwan_dev_list -> {code:0,info:[{mac,oname,ip,...}]}.
+GET get_multiwan_dev_policies -> {code:0,info:{dev_policies:[...]}}.
+POST xqnetwork/set_multiwan_dev_policy:
+  mac=<single MAC or comma-separated MACs from current list>
+  manual='0' (selected current device)|'1' (manual entry)
+  oname=<name for manual entry>
+  wan='WAN1'|'WAN2'
+  opt='0' add/edit|'1' delete
+Changing WAN must reuse current entry fields; opt0 is also how stock UI edits.
+Allow deletion only for known existing rules. For manual entries validate MAC
+and a bounded common-string name; don't allow shell characters/newlines.
+Stock UI uses MAX_ROUTER_POLICY_LIST_NUM from its shared environment; the
+exact runtime count wasn't independently resolved in this task.
+POST xqnetwork/set_multiwan_weight:
+  bandwidth_wan1,bandwidth_wan2 positive bandwidth numbers (UI Mbps).
+Stock dual-WAN UI limits the ratio to1:100 and uses ps_service policy payload
+for these changes; module reduces to integer weights and commits/restarts.
+Do not send zero values to the gcd-based helper. Don't expose dual-WAN device
+rules for disabled/nonexistent WAN2 without an explicit enable workflow.
+Evidence: web/inc/dual-wan.js.htm lines458–471,575–577 and module disassembly;
+research/network-XQMultiWanPolicy.lua is orientation only, flow is unreliable.
+
+7. WAN connect/disconnect
+xqnetwork/wan_up and wan_down take no params and directly call ifup/ifdown wan.
+They act on WAN1 and are generic, not PPPoE-specific. User actions only, can
+disconnect Internet. xqnetwork/pppoe_start / pppoe_stop accept wan_name WAN1|WAN2,
+look up XQPortServiceUtil.PS_WAN_SERVICE_NAME_MAP, default to WAN1, then call
+XQLanWanUtil pppoeStart/Stop on the mapped interface. Validate configured WAN
+and use only for actual PPPoE; do not call getters with these names.
+
+8. Guest QoS — mutable GET trap, implementation-ready
+misystem/qos_guest is NOT a safe read without parameters. It mutates guest
+limits; GET params percent and percent_up are decimal FRACTIONS >0..1,
+not integer percentages0..100. Stock qos.htm lines742–748 computes
+  percent = desiredDownloadMbps / configuredWanDownloadMbps
+  percent_up = desiredUploadMbps / configuredWanUploadMbps
+Missing percent defaults to100 in bytecode, which is inconsistent with valid
+fraction range; never omit explicit values. Read current guest fractions from
+misystem/qos_info.guest, not by calling qos_guest.
+The controller synchronizes QoS after success. Require QoS enabled and valid
+nonzero configured WAN bandwidth before allowing Mbps form conversion.
+Evidence: stock setting/qos.htm486/742–748 and network-guest-bytecode.txt.
+
+9. Parental app categories and temporary allowance
+GET misystem/mipctl_get_app_antiaddict with user_id -> {code:0,list:[...]}
+GET misystem/mipctl_get_temp_allow user_id -> {code:0,allow,show,nxt_permit}.
+Temporary allowance routes/operation are gated by apps.mipctlv2_temp_allow='1'.
+Use existing misystem/mipctl_set, form opt_list JSON array:
+  [{opt:'mipctl_set_temp_allow',user_id:N,allow:true|false}]
+Allow is a JSON boolean, not the string '0' (truthy in Lua). The implementation
+may reject enable when current schedule state already allows access.
+App edit schema:
+  [{opt:'mipctl_set_app_antiaddict',user_id:N,list:[
+    {class_name:<existing category>,enable:<boolean>,time_quota:<integer>,
+     app_list:[{name:<existing app>,enable:<boolean>}, ...]}
+  ]}]
+setSingleClass merges these fields into current returned category data and
+rejects unknown category/app names. Quota default120; its native unit has NOT
+been independently established by this task (likely minutes, not proof).
+Use positive bounded quotas and preserve current values; do not expose a
+reset/unlimited value based on the unreliable decompiler. Raw setApp contains
+a special comparison to -1; an earlier message inferring0 reset was corrected.
+The current getApp implementation has compatibility migration logic, so it
+is not proof that every read can never write backend migration data.
+Evidence: network-parental-bytecode.txt, network-appschema-bytecode.txt.
+
+10. Offline client removal
+No exact local route for removing an offline general client record was found.
+Do not reinterpret xqsystem/set_mac_filter option or device_security/del_device
+as it: the first edits access/filter data, the second only unprotects a device
+in the IoT firewall. Official RD08 changelog says Xiaomi Home supports offline
+device deletion, but the app may use a cloud/native daemon RPC absent from
+these LuCI registrations. Avoid an invented delete button until resolved.
+
+General limits
+No route execution, radio change, pairing, QoS mutation, WAN reconnect,
+parental profile modification or hardware verification was performed here.
+Scripts/disassemblies contain only public offline firmware, no credentials.
+
+FINAL WPS / SPEED TEST (2026-11-09)
+Implemented utility-plans.mjs and DOM utilities-ui.js;4 focused tests.
+WPS set_wps_enable POST enable0/1 changes UCI flag only; wps/wps_cancel GET
+run XQConfigs OPEN_WPS='wps pbc' / CLOSE_WPS='wps stop', /sbin/wps invokes
+hostapd_cli wps_pbc/wps_cancel. Start requires enabled, non-wpa3_only and an
+active known WPA2-compatible basic radio. No PIN control. Native statuses
+0closed,1waiting,2connected,3folded failure/timeout,9unconfirmed; controller
+folds3..7 to3. Epoch strings bounded before UI elapsed calculation.
+misystem/speed_test GET runs nettb and asyncSpeedTest -> speed_test.lua ->
+syncSpeedTest (real upload+download). /tmp/speed_test_pid serializes worker.
+speed_test_result missing/error1588,0/0 status1 (also initial noresult),
+positive both status2 up/down KiB/s, conversion decimalMbps=*8192/1e6.
+No stop, timestamp or job ownership API; it is a global previous result.
+Actual reads: WPS status0, disabled, wpa3_only1; speedresult1588. Neither WPS
+pairing nor WAN speedtest was launched. No selected Mesh-node CRUD/reboot
+contract found; ordinary reboot/reset affect the local router (reset may
+propagate). Offline-client removal gap remains, not replaced by unprotect.

@@ -1,0 +1,69 @@
+RD08 1.1.123 SERVICE SDK AUTHORIZATION — SOURCE-ONLY CHECK
+2026-11-08. No new login, SDK grant, service call or router write performed.
+
+Finding
+code1500 from /service/internal/custom_host_get is a deliberate SDK MAC ACL
+denial in dispatcher, not a missing hosts file or a bad web-session token.
+Changing login's logtype from2 to1 does not grant the required permission.
+
+Entry flags, not login classes
+Corrected-bytecode luci/dispatcher.lua entry (source923–933) stores its fifth
+argument as node.flag. Helpers interpret bit flags:
+  bit1: _noauthAccessAllowed
+  bit2: _remoteAccessForbidden (helper exists)
+  bit4: _syslockAccessAllowed
+  bit8: _noinitAccessAllowed
+  bit16: _sdkFilter
+Thus entry(...,nil,16) requires SDK permission plus ordinary authentication.
+entry(...,nil,17) has SDK bit16 plus noauth bit1, still SDK-filtered.
+These are not service-role IDs, SDK version numbers, or logtype values.
+
+Exact permission check
+dispatch source476–747 bytecode PCs302–326 checks _sdkFilter(node.flag),
+then XQSDKUtil.checkPermission(getremotemac()) before sauth/authenticator.
+Failure returns exactly {code:1500,msg:'Permission denied'}.
+XQSDKUtil.checkPermission source33–50:
+  uppercase/formatted remote MAC, strip ':';
+  XQPreference.get(MAC_WITHOUT_COLONS,nil,'sdkfilter') must equal string'1'.
+XQPreference.get resolves uci.get('sdkfilter','common',MAC_KEY).
+Factory /etc/config/sdkfilter contains only an empty common section.
+setPermission(mac,bool) writes/saves/commits that separate ACL. It was not run.
+
+Why ordinary app-style login cannot help
+dispatcher jsonauth function source205–247 reads username,password,nonce;
+it does not read logtype. Both normal password paths return user,ltype'2'.
+It calls empower('1','1',nil), but empower source162–176 consists solely of
+one RETURN instruction in this image. It does not modify SDK permissions.
+htmlauth may use redirectKey/cloud binding to choose ltype1 instead, but
+that happens after the same independent SDK check and cannot satisfy it.
+Mobile password auth also does not supply an SDK grant.
+The live panel's logtype2 parameter is therefore not the cause of1500.
+
+Writer search
+All215 decoded Fate/Z modules were searched for XQSDKUtil/setPermission/
+checkPermission/sdkfilter references. Only dispatcher.checkPermission and
+the utility's own definitions were found. No normal registered LuCI setter
+to grant SDK MAC permission was found. Plain Lua references were not found.
+This excludes a known legitimate app-password elevation path in the supplied
+Lua implementation, not every possible native/cloud provisioning mechanism.
+
+Safe implementation outcome
+Keep SDK-restricted Hosts/IPv6/game/service functions explicitly permission-
+denied when current device ACL disallows the panel PC. A normal stok remains
+valid for ordinary API pages (e.g. mi_log) whose route lacks bit16.
+No additional getter-only app-login test is justified: source shows logtype
+is ignored and the decisive check precedes login. Such a test would not
+establish an authorized SDK-role path.
+
+Do not fake localhost/forwarded headers, edit the SDK ACL through an exploit,
+or bypass the dispatcher check. A legitimate separately provisioned SDK MAC
+grant or supported cloud/on-router service identity would be needed first.
+
+Evidence reproduction (offline, no firmware execution)
+  py -3.13 research/security-inspect.py luci/dispatcher.lua 21
+  py -3.13 research/security-inspect.py luci/dispatcher.lua 9
+  from fate123 import j,exported
+  j.disassemble_proto(exported('luci/dispatcher.lua','entry'),sys.stdout)
+  j.disassemble_proto(exported('luci/dispatcher.lua','_sdkFilter'),sys.stdout)
+  j.disassemble_proto(exported('xiaoqiang/util/XQSDKUtil.lua','checkPermission'),sys.stdout)
+The corrected comparison mapping/evidence is security-fate-opcodes.json.

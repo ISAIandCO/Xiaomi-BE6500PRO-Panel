@@ -1,0 +1,173 @@
+RD08 1.1.123 — ТОЧНЫЕ КОНТРАКТЫ ПЛАГИНОВ И АВТОРСКИЙ ПРИМЕР
+08.11.2026. Статический анализ штатных ELF/Lua; программы из образа и
+скачанный упаковщик не выполнялись. Настройки и учётные данные роутера
+этим исследованием не читались и не изменялись.
+
+Артефакты
+6500pro_router-panel/plugin-package.mjs — локальная проверка пакета.
+6500pro_router-panel/test/plugin-package.test.mjs — 5 тестов, все проходят.
+research/plugin-sdk-example/ — исходник собственного минимального плагина.
+research/plugin-sdk-package.zip — официальный старый SDK, только для анализа.
+research/plugin-sdk-tools/ — извлечены только упаковщик и пример конфигурации.
+research/plugin-elf.py — ELF/Capstone, читает PT_LOAD/PT_DYNAMIC без section table.
+research/plugin-pluginmanager.asm / plugin-mkxqplugin.asm — исходный машинный код.
+Их строковые аннотации линейные и вспомогательные: ветвления сверены вручную.
+plugin-upload-bytecode.txt — точный байткод uploadPlug/installedPlug/localInstall.
+plugin-sdk-packer-static.txt / plugin-sdk-signing-static.txt — выбранные функции
+официального x86_64-упаковщика, без запуска и без чтения его всего в память.
+plugin-datacenter-forwarding.asm / plugin-api-map.txt — исследованная маршрутизация.
+
+Проверенные SHA256 в официальном образе
+usr/sbin/pluginmanager:
+845dd923501c93b5ef21af8a3705369e4684c69af0409459ce09f1e695ec6d89
+bin/mkxqplugin:
+caa0b11387495e47d8cdc373f65bea2f79891c76553de7d4068057535f3b17ae
+usr/share/xiaoqiang/plugin_public.pem:
+9cf89eb347413f2ccd8a1b6d43113d5a1ca3aa79d4ac43d6ff7dbe6bbbc3ff7f
+usr/share/xiaoqiang/app.miwifi.com.ca.crt:
+14fc0262c33e6223234d20a9986de3e0d08a1c7ca3e9bce0576dd8b7efcef4c2
+
+Встроенный Hosts — что именно обнаружено
+usr/share/pluginmanager/hosts.json полностью соответствует строке живого
+installed_plug: id2882303761517675329, версия1.0.0, status0/use_status0,
+пустой rootPath. init.d/pluginmanager копирует этот JSON в installPlugin.
+Это встроенная запись каталога, а не свидетельство установленного стороннего
+исполняемого файла. Настройки доступны отдельным service/internal:
+custom_host_get: без параметров, возвращает hosts:массив строк IP+имя.
+custom_host_set: поле hosts = JSON-массив строк, например
+  ["192.168.31.2 printer.lan","2001:db8::2 device.example"]
+pcall-прототип содержит decode(trim(hosts)); наружный цикл pairs применяет
+регулярное выражение IP+имя, пишет /etc/custom_hosts, копирует /tmp/hosts/custom_hosts
+и перезапускает dnsmasq. Пустой массив очищает записи. Запись — не безвредное
+чтение: изменяет разрешение имён всей сети и кратко перезапускает DNS/DHCP.
+
+Штатная веб-загрузка
+POST /cgi-bin/luci/;stok=SESSION/api/xqsystem/upload_plug, multipart поле image.
+Загрузка через /uploadfile/cgi-bin/... использует UPLOADFILE nginx.
+Локальный путь — /tmp/uploadplug.mpk; extractPlug вызывает:
+  cd /tmp ; mkxqplugin -X uploadplug.mpk -F
+Далее pluginLocalInstall отправляет datacenter API602 с
+  {"api":602,"pluginPath":"/tmp/unified_plug.mpk"}
+Это не универсальная установка ZIP/IPK/APK или выполнение shell-команд.
+В обработчике нет фиксированного размера: вызывается checkSpace. Шаблон
+nginx для обычного LuCI ограничен50K, специальный upload location48M;
+init nginx меняет default-locations.conf по UCI client_max_body_size=100M.
+Фактический runtime-limit не прочитан. Панель ограничена48 МиБ.
+
+Внешняя оболочка HDR1 — проверена по mkxqplugin
+0x1ef8 выбирает -X/mode9 ->0x3880 ->проверка0x304c ->RSA0x4654.
+Флаг -F устанавливается0x1ee4 и выбирает plugin_public.pem в0x4434..4460.
+-F НЕ отключает подпись. Корень — фиксированный открытый RSA1024-ключ Xiaomi.
+HDR1 header48 байт: magic HDR1, u32signatureOffset@4, rawCRC32@8,
+hardware/flags@12, до8 u32sectionOffsets@16..47.
+Plugin metadata56 байт@48: minVersion3*u32, maxVersion3*u32, ASCII model32.
+Модель сравнивается точно; три компонента версии проверяются независимо,
+а не обычным лексикографическим сравнением семантической версии.
+Секция: u16magicBABE@0, u32size@8, filename32@16, payload@48.
+Подпись: length@signatureOffset, signature@signatureOffset+16;
+RSA-SHA1 покрывает bytes12..signatureOffset. CRC — raw IEEE CRC32 с initial
+0xffffffff и БЕЗ финальной инверсии над bytes12..EOF (mkxqplugin0x429c..43ec).
+В режиме -F извлечённый файл переименовывается в unified_plug.mpk
+(0x3638..366c). Несколько секций неоднозначно перезаписывают этот путь;
+проверка панели поддерживает только одну секцию с вложенным MIPK.
+
+Внутренний MIPK — проверен по pluginmanager
+verify_load_mpk0x556c; verify_check_header0x5048; verify_check_sign0x52b4.
+u32magic0x4b50494d ('MIPK')@0; standardCRC32@4 надbytes8..EOF;
+u32kind@8 допускается0/1; u32signType@12 в текущем менеджере требуется1.
+u32payloadLength@16; ZIP payload@20;
+затем u32certificateLength, certificateBytes;
+затем u32signatureLength, signatureBytes. Итоговый размер должен совпадать.
+RSA-SHA1 в0x54b0..54fc использует X509_get_pubkey из фиксированного
+app.miwifi.com.ca.crt; digest bytes8..конецcertificateBytes, без поля длины
+подписи и самой подписи. EVP_VerifyFinal должен вернуть1, иначе ошибка.
+Точные GOT-импорты: 0x1ec48 X509_get_pubkey, 0x1ed10 EVP_DigestUpdate,
+0x1ed48 EVP_VerifyFinal, 0x1ee80 EVP_sha1.
+CA self-issued MIWIFI/Xiaomi.com, RSA2048. Срок2014-03-28..2024-03-25.
+Исследованный код извлекает публичный ключ, не проверяет срок сертификата.
+Сторонний сертификат eMudhra не заменяет этот ключ или plugin_public.pem.
+
+Manifest и среда
+Внутри ZIP требуется manifest в корне. После установки он находится в
+/userdisk/appdata/APPID/etc/manifest. supported_rom сравнивается с
+/etc/config/pluginmanager: miwifi_rom_2. Текущий sdk_level=5.
+Проверка0x7a44..7ab4 отклоняет запрошенный SDK6..99; значения>99 — отдельный
+vendor-special путь. Обычный авторский пример использует5.
+Версия/name/plugin_id нужны для списка и идентификации. plugin_class
+дополнительно проверяет совместимость (для game есть запрет другого game).
+start_script — DSL MKDIR/RUN. Legacy RUN управляется менеджером; более
+новый run executable может принимать start/stop/restart/uninstall.
+Нельзя путать этот framework с полноценным root-доступом или opkg.
+
+Native lifecycle IDs (внутри pluginmanager; transport нужно подтверждать)
+600: инициализация менеджера, НЕ диагностический read.
+601: список, используется подтверждённым xqsystem/installed_plug.
+602: локальная установка, pluginPath; поддержан кодом pluginLocalInstall.
+603: иной режим установки, не раскрывать без подтверждённого контракта.
+604: прогресс, поле ids — строка IDs через ';', каждый ID до31 символа.
+605: удаление, pluginID; запускает uninstall и удаляет каталог.
+606: смена статуса, pluginID и status. Допустимы5/6/7. По веткам кода:
+5 — включён,6 — вручную выключен,7 — остановлен менеджером задач.
+При старте datacenter его init-script переписывает сохранённые7 в5.
+Переход5->6/7 вызывает stop,6/7->5 — restart; факт процесса надо проверять.
+609: иной режим установки/обновления, без подтверждения не использовать.
+610: дополнительный control handler, не произвольный shell.
+666: чтение package info, может создавать временный файл; контракт не завершён.
+
+Веб-транспорт
+service/datacenter/request принимает поле payload с JSON, sysauthadmin/jsonauth.
+Старые service/datacenter/plugin_enable/disable посылают API1108 с appid и
+status5/6; plugin_control — API600 с pluginID+info; это ДРУГИЕ старые команды,
+их нельзя отождествлять с init600 современного pluginmanager.
+Не публиковать универсальный пользовательский payload-прокси.
+datacenter содержит несколько старых транспортов. ThriftClient::sCallPluginCenter
+0x74048 подключается к localhost9091; combinedIndex+PluginCenter forwarder
+0x9f9d8 зарегистрирован дляAPI63, это не доказательство путиAPI602.
+Транспорт native601/604/605/606 через datacenter в этом исследовании не
+исполнялся: каждый должен отдельно проверяться в родительской задаче.
+
+Старый облачный каталог
+xqpassport/plugin_list берёт uuid (по умолчанию пусто) и вызывает
+XQNetUtil.pluginList(uuid). Но в XQNetUtil1.1.123 нет экспортированных
+pluginList/Detail/Enable/Disable, хотя константы /s/plugin/list и подобные
+сохранились. Это признак устаревшего контроллера, а не рабочего каталога.
+Подтверждение живого404/500 оставлено родительской задаче. getPassport(uuid)
+может брать bindUUID и token из внутренней БД; эту БД/токены мы не читали.
+Другого подтверждённого локального пути к каталогу UU/Youbangbang пока нет.
+
+Отдельный miio_mpkg
+usr/sbin/miio_mpkg (334451 байт) запускается для bound-роутера и может
+обновляться в/data/miio_mpkg. Его строки показывают miIO.ota_module* и
+miIO.get_module_version, BT-модуль и цепочку root->MijiaOpen->manufacturer
+для firmware-signature. Это обновление модулей Bluetooth, не обнаруженный
+открытый магазин пользовательских/игровых плагинов.
+
+Практическое написание и предел установки
+Готов исходник plugin-sdk-example: конфигурация SDK5 и POSIX-worker,
+который пишет только своё uptime-status.json, без сети/служб/настроек.
+Проверен sh -n. Он не установлен и не заявлен installable.
+Первичный SDK5 guide: https://dev.mi.com/docs/routerplugin/user_guide/
+Официальный2014 архив: https://bigota.miwifi.com/xiaoqiang/sdk/tools/sdk_package.zip
+SHA2564f52b407981bd3b03b56445548e4ecc51f1229299921d5382a54fabebdd0c10a.
+Packer ELF x86_64, не программа для AArch64-роутера, нами не запускался.
+Его filePackager::run генерирует manifest, ZIP и DigitalSign MIPK.
+signPackageFun0x403536 передаёт SignType0; DigitalSign0x40e88a пишет0@offset12.
+Текущий standalonepluginmanager требует1@offset12 (0x5770..577c).
+Поэтому старый SDK-выход несовместим с исследованным менеджером и не содержит
+нужную вебу HDR1-оболочку. Возможная серверная повторная подпись/обёртывание
+Xiaomi — логичное предположение, но современный процесс не подтверждён.
+Отсюда нельзя делать вывод, что авторские плагины в принципе невозможны.
+Однако без современного совместимого финального пакета/подписи нельзя
+честно считать написанный пример установленным. Получение vendor-signing
+или другой доступ к системе — внешнее условие, не заменяемое сертификатом
+от другой PKI и не решаемое переименованием ZIP.
+
+Проверка панели
+inspectPluginPackage(Buffer,{hardware,firmware}) не извлекает файлы на диск.
+Проверяет HDR1/MIPK, обе подписи/CRC, модель/ROM/SDK, ZIP paths/links/duplicates/
+overlaps/размеры/CRCmanifest. Лимит48МиБ вход,128МиБ суммарно распаковано,
+4096 entries,64КиБ manifest. Возвращает uploadable только для проверенного
+односекционного HDR1. RawMIPK можно исследовать, но не отправлять этим путём.
+5 тестов доказывают отрицательные/структурные случаи и различие CRC-форматов.
+При отсутствии настоящего подписанного образца положительное принятие
+пакета и реальная установка на RD08 НЕ проверены.

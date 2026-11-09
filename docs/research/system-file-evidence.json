@@ -1,0 +1,48 @@
+{
+  "date": "2026-11-09T12:28:44.471Z",
+  "credentialMatches": 0,
+  "releaseFilesScanned": 45,
+  "inspection": {
+    "kind": "firmware",
+    "format": "HDR1",
+    "bytes": 87706132,
+    "sha256": "c4d3259dae532ba1e50d55e914c8759f06e1568f42d2e708d0a69337bc5c9093",
+    "valid": true,
+    "errors": [],
+    "hardwareId": 81,
+    "crcValid": true,
+    "signatureAlgorithm": "RSA-SHA256",
+    "signatureValid": true,
+    "sections": [
+      {
+        "name": "xiaoqiang_version",
+        "bytes": 512,
+        "offset": 192,
+        "mtd": -1
+      },
+      {
+        "name": "uboot.bin",
+        "bytes": 542132,
+        "offset": 752,
+        "mtd": -1
+      },
+      {
+        "name": "root.ubi",
+        "bytes": 43384832,
+        "offset": 542932,
+        "mtd": -1
+      },
+      {
+        "name": "root.ubi",
+        "bytes": 43778048,
+        "offset": 43927812,
+        "mtd": -1
+      }
+    ],
+    "model": "RD08",
+    "version": "1.1.123",
+    "channel": "release",
+    "modelMatches": true,
+    "nativeValidationRequired": true
+  }
+}

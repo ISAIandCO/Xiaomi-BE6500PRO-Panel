@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="panel-csrf" content="__CSRF__">
+  <meta name="color-scheme" content="light">
+  <title>BE6500 Pro · Панель управления</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="login-screen" class="login-screen">
+    <div class="login-visual">
+      <a class="brand login-brand" href="/"><span class="brand-mark">mi</span><span>Панель роутера</span></a>
+      <div class="login-copy"><span class="eyebrow">ВАША СЕТЬ. ПОНЯТНЫЕ НАСТРОЙКИ.</span><h1>Всё под<br>вашим контролем.</h1><p>Обычные и дополнительные возможности<br>Xiaomi BE6500 Pro в одном интерфейсе.</p></div>
+      <div class="router-art" aria-hidden="true"><div class="signal one"></div><div class="signal two"></div><div class="router-book"><i></i><span>mi</span></div><div class="router-shadow"></div><span class="art-caption">BE6500 Pro <b>Wi-Fi 7</b></span></div>
+      <p class="local-note"><span class="small-dot"></span> Локальное приложение · без облака</p>
+    </div>
+    <main class="login-panel">
+      <div class="login-form-wrap"><span class="device-label">XIAOMI ROUTER</span><h2>Добро пожаловать</h2><p class="muted">Войдите с паролем администратора роутера.</p>
+        <div id="login-device" class="device-address">192.168.31.1 <span>Проверяем подключение…</span></div>
+        <form id="login-form"><label for="password">Пароль администратора</label><div class="password-wrap"><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="256" placeholder="Введите пароль"><button type="button" id="show-password" class="password-toggle" aria-label="Показать пароль">Показать</button></div><p id="login-error" class="error-text" role="alert"></p><button class="primary login-submit" type="submit">Войти в панель <span>→</span></button></form>
+        <p class="login-privacy">Пароль не сохраняется на диске. Подключение к роутеру защищено HTTPS с проверкой сертификата.</p>
+      </div>
+      <p class="login-footer">Русский интерфейс для штатной прошивки RD08</p>
+    </main>
+  </div>
+  <div id="shell" class="shell" hidden>
+    <aside class="sidebar"><a class="brand" href="/"><span class="brand-mark">mi</span><span>Панель роутера</span></a><div class="sidebar-device"><span class="model-pill">Wi-Fi 7</span><strong>BE6500 Pro</strong><span id="sidebar-address">192.168.31.1</span></div><nav id="navigation" aria-label="Разделы панели"></nav><div class="sidebar-bottom"><span class="small-dot"></span> Только на этом компьютере<button id="logout" class="logout-button">Выйти из панели</button></div></aside>
+    <div class="workspace"><header class="topbar"><span class="breadcrumb">Моя сеть <span>/</span> <b id="breadcrumb">Обзор</b></span><div class="topbar-right"><span id="connection" class="connection"><span class="small-dot"></span> Подключено</span><span class="avatar">Я</span></div></header><main class="main"><div class="page-heading"><div><p class="eyebrow" id="page-eyebrow">ВАША ДОМАШНЯЯ СЕТЬ</p><h1 id="page-title">Обзор сети</h1><p id="page-subtitle" class="muted">Всё важное о вашем подключении.</p></div><button id="refresh" class="secondary refresh-button">↻ <span>Обновить</span></button></div><div id="page-notice" role="status"></div><div id="content" aria-live="polite"></div><footer class="page-footer"><span>Xiaomi BE6500 Pro <span class="footer-dot">·</span> <span id="firmware">RD08</span></span><span id="updated">Данные ещё не обновлены</span></footer></main></div>
+  </div>
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title"><div class="dialog-heading"><span class="dialog-icon">✓</span><button id="close-dialog" class="icon-button" aria-label="Закрыть">×</button></div><h2 id="confirm-title">Применить изменения?</h2><p class="muted">Проверьте настройки перед отправкой на роутер.</p><div id="change-list" class="change-list"></div><p id="change-notice" class="inline-note"></p><p id="apply-error" class="error-text" role="alert"></p><div class="dialog-actions"><button id="cancel-apply" class="secondary">Отмена</button><button id="confirm-apply" class="primary">Применить</button></div></dialog>
+  <div id="toast" role="status" hidden></div>
+  <script type="module" src="/app.js"></script>
+</body></html>

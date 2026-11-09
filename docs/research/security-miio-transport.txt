@@ -1,0 +1,91 @@
+RD08 1.1.123: FINITE BT/CENTRAL TRANSPORT CHECK — 2026-11-08
+
+No root, exploit, account login, service restart, setting change or BT setter.
+Only fixed authenticated read calls and offline inspection were used.
+
+1. Local web token endpoints are NOT MIIO device tokens
+   xqsystem/token -> getToken returns dispatcher.context.urltoken.stok,
+   the existing LuCI web session. It also returns device identifiers/name.
+   Therefore it cannot be used as the16-byte MIIO UDP encryption key.
+   This was established from source; no token endpoint call was needed.
+
+   xqsystem/oneclick_get_remote_token ->
+   XQExtendWifi.oneClickGetRemoteTokenForLua(username,password,nonce).
+   The helper reads peer_ip from /tmp/replace_router, cleans migration token
+   records, GETs the PEER router's /cgi-bin/luci/api/xqsystem/token, and writes
+   returned web-session token to the migration state file. This is a router
+   replacement/migration helper with writes, not a MIIO-token getter.
+   It was NOT called. xqsystem/renew_token similarly creates web sessions.
+
+2. Native MIIO key storage
+   usr/bin/miio_client_helper_nomqtt.sh request_ot_config reads
+   miio_ot.ot.token, initializes it from ntoken if absent, and sends it through
+   the internal MIIO helper channel. update_dtoken changes/persists it.
+   No runtime config/key file was read, displayed or copied.
+
+   security-miio-constants.py decoded215 Fate/Z modules with zero errors and
+   searched for miio_ot,miio_token,miot_key,centralCtl,ble_gateway,miotcentral,
+   miio_bt,gateway_state. Only XQSysUtil and xqsystem matched miio_ot:
+   they read bound/ver/device-ID information, not ot.token. Plain Lua text
+   search found no additional matching bridge. Evidence: security-miio-constants.json.
+   This is bounded evidence about supplied Lua modules, not a mathematical
+   claim that every possible binary/admin interface has been excluded.
+
+3. Existing authenticated router-origin cloud getter was tried once
+   xqsmarthome/request_miiolist -> requestMiioList runs exactly:
+   /usr/bin/matool --method api_call --params /device/miot_get_device_tokens
+   This is a getter using the router's existing Xiaomi-bound service identity.
+   It requires no NEW account credentials from the user, if that identity works.
+   It could contain other devices' tokens, so its result was kept RAM-only and
+   inspected only for the exact self DID from authenticated init_info.
+
+   Actual response: code -7, message string length14, result empty object.
+   hasSelfDid=true, hasSelfToken=false. No token values/list/DID values stored
+   or printed; no encrypted UDP requests sent because no matching key exists.
+   Only schema and booleans are persisted in security-miio-token-schema.json.
+   Script: security-miio-token-check.mjs. Do not retry it merely to obtain the
+   error text or enumerate arbitrary account device credentials.
+
+4. Legacy MIIO bridge is unusable on this installed configuration
+   xqsmarthome/request_miio with EXACT fixed getter payloads
+   miIO.ble_gateway_state and miIO.bt_gateway_version returns code-1/msg empty.
+   Thrifttunnel case6 creates MiioThrift client localhost:9098. No miiothrift
+   server/init binary exists in the supplied rootfs. See security-contracts.txt
+   and security-bt-live.json. This failure does not mean the gateway is off.
+
+5. Other LuCI bridge candidates
+   dispatch/index is only an authenticated HTML dispatch page.
+   service/internal exposes ccgame,ipv6,custom_host_get/custom_host_set only.
+   xqtunnel/request runs /opt/filetunnel/tunneltool --payload <base64>.
+   Its TunnelUtils::request accepts tunnel traversal APIs:
+   initiate_tunnel_responder,stun_test,create_mitp_session,
+   add_traversal_link,initiate_relay_responder. No BT/Central route was found.
+   This tool was not called; traversal setup is not a read-only BT operation.
+
+6. Central local sockets are not a LAN/web authentication bridge
+   etc/init.d/miio_central_base starts miotcentralctld with container socket
+   /tmp/miot_central/centralCtl.sock. miotcentralctl sends JSON datagrams
+   {method,...params} to /tmp/miot_centralctld.sock. Native daemon supports
+   setUIState/update/getAPILevel locally and forwards other methods to the
+   Central container. Access to these Unix sockets requires a process on the
+   router; no LuCI route to them was found. No socket command was executed.
+
+7. Documented external authorized path requires additional identity
+   Xiaomi's official HA integration creates MipsLocalClient with ca_file,
+   cert_file,key_file. User certificate is issued by get_central_cert_async
+   using an OAuth-authenticated MIoT HTTP client and a CSR, then used for local
+   Central TLS. Existing LuCI stok does not supply this client identity.
+   Sources:
+   https://github.com/XiaoMi/ha_xiaomi_home/blob/main/custom_components/xiaomi_home/miot/miot_client.py
+   https://github.com/XiaoMi/ha_xiaomi_home/blob/main/custom_components/xiaomi_home/config_flow.py
+   RD08 public MIoT spec has no Bluetooth gateway service/property:
+   security-rd08-miot-spec.json (services1,2,5,7 only).
+
+Conclusion under CURRENT available authorization and credentials
+There is no verified working BT/Central setter transport through this local
+panel's existing web-admin session. Native RPC payloads are known, but a
+failed getter, missing MIIO token and absence of a client certificate prevent
+honest control. Continuing needs a valid token for this exact device from an
+authorized source, new Xiaomi account OAuth/certificate setup with support for
+this gateway, or separately authorized on-router shell access. Do not add a
+fake functioning switch or bypass package/token/certificate authentication.

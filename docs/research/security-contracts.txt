@@ -1,0 +1,171 @@
+RD08 1.1.123 SECURITY CONTRACTS — 2026-11-08
+Static controller bytecode + five safe live reads. No setters or scans run.
+All routes below are relative to /cgi-bin/luci/;stok=.../api/.
+Use ordinary form encoding. Values containing arrays must be JSON strings,
+not nested form array fields. Validate all MACs as individual colon-separated
+addresses and select known devices; firmware checks are weaker than panel's.
+No numeric/list size limit is enforced explicitly in these controller inputs;
+panel must use its own bounded limits. 0/1 fields should be sent as strings.
+
+DEVICE_SECURITY — firmware luci/controller/device_security/index.lua
+GET overview -> {code:0,meta:{enable,protected,total,protected_devices:[MAC]}}
+POST switch {enable:'0'|'1'} -> {code:0} or -1
+  global_switch lines88–98 calls helper lines39–86. It sets
+  firewall_cpp_dist.smartdev_sec_meta enable/log; ensures router's LAN MAC
+  in smartdev_sec_cap.trusted; commits firewall_cpp_dist and milog.
+  This manages LAN-to-LAN IoT protection; do not label it WAN/IPv6 firewall.
+
+POST add_device {mac:JSON.stringify([MAC,...])} -> code0/-1
+POST del_device {mac:JSON.stringify([MAC,...])} -> code0/-1
+  Per-device lanlan_whitelist section smartdev_sec_<MAC-without-colons>.
+  add enables protection; del also removes smartdev_sec attributes.
+  Reject the panel host MAC as a protection target to avoid management loss.
+
+GET get_global_trusted -> {code:0,meta:{trusted:[MAC,...]}}
+  Actual live reply: array of5 trusted MACs. Values omitted here.
+POST add_global_trusted {mac:JSON.stringify([MAC,...])} -> code0/-1
+POST del_global_trusted {mac:JSON.stringify([MAC,...])} -> code0/-1
+  These are add/delete operations; preserve router and panel host entries.
+
+GET get_trusted {mac:SOURCE_MAC}
+  -> {code:0,meta:{trusted:{DEST_MAC:{access_time:number,placeholder:1}}}}
+GET get_blocked {mac:SOURCE_MAC}
+  -> {code:0,meta:{blocked:{DEST_MAC:{access_time:number,marked:0|1}}}}
+  Empty maps may serialize as arrays. access_time derives from miwifi-logd
+  event timestamps. It is not a byte/packet counter.
+POST add_trusted {mac:SOURCE_MAC,trusted:JSON.stringify([DEST_MAC,...])}
+POST del_trusted {mac:SOURCE_MAC,trusted:JSON.stringify([DEST_MAC,...])}
+POST mark_untrusted {mac:SOURCE_MAC,untrusted:JSON.stringify([DEST_MAC,...])}
+  mark_untrusted records marks on blocked peers, not an independent global
+  deny-list setter. No clear/unmark endpoint is registered.
+  Rely on normal add/delete lifecycle; do not replace complete trust lists.
+
+GET device_status {mac:MAC} -> {code:0,local_access:{global_enable:0|1}}
+GET local_access/get_global_enable {mac:MAC} -> {code:0,meta:{enable:0|1}}
+POST local_access/set_global_enable {mac:MAC,enable:'0'|'1'} -> {code:N}
+  The local_access prefix is THREE path segments, so current Router.api
+  regex needs an exact allowlisted exception. It inversely reflects WAN
+  authority: enable1 means local-only (WAN denied), enable0 allows WAN.
+  The setter delegates to xqsystem._setMacFilter. Do not block panel host.
+
+CONFIG SCANNER — luci/controller/config_scan/index.lua
+The ROUTE namespace is config_scanner, not config_scan.
+GET overview -> keys {check:{enable_scan:0|1},meta:{last_score},code:0}
+  Live enable_scan1: rom_auto_updating,anti_squatter,UPnP,newest_rom,
+  wifi_passwd_secure,port_mapping,DMZ,wifi_encryption; last_score73.
+  publicData's broad password regexp currently turns wifi_passwd_secure into
+  hasPassword:true. Normalize this KNOWN nonsecret check to wifiKeyStrength
+  before redaction, both standalone and nested sec_center.config_scanner.
+POST config {<existing check key>:'0'|'1', ...} -> {code:0}
+  1 means include scan (ignored=0), 0 means ignore. Unspecified checks remain.
+  Only expose keys whose overview value contains enable_scan; exclude meta.
+  config is NOT a getter: even zero fields acquires a lock/commits UCI.
+POST start {} -> {code:0,meta:{work_id:STRING}} or {code:-1,msg:'resource busy'}
+  Generates unique random work_id strings1..1000, prepares temp status and
+  forks Lua scanner. No network reset is present in controller.
+GET get_status {work_id:STRING} -> {code:0,<check>:{status,secure,enable_scan},
+  meta:{status,score,running:CHECK_NAME?}} or {code:-1}
+  status0/1/2 represent prepared/running/done in config_scan.common.
+  secure is a score (typically0/1), not necessarily boolean; meta.score is
+  floor(100*score). Work IDs can expire; do not poll endlessly after -1.
+POST stop {work_id:STRING} -> final status object
+  Stops the spawned process, then produces status. Controller accepts any
+  known temporary work_id: panel should bind stop/status to its started job.
+  Read polling refreshes temporary job timestamp; jobs are bounded/cleaned.
+  No live scanner start/config/stop was performed in this research.
+
+URL FILTER — luci/controller/url_fw/index.lua
+GET show_policy -> {code:0,list:[{tag,name,policy}]}
+POST update_policy {tag:<existing tag>,policy:<choice>} -> code0/-1
+  Choices EXACTLY reject,alarm,log,ignored (check_policy lines85–88).
+GET show_whitelist -> {code:0,whitelist:[{utc:number,url:string}]}
+  Actual live reply: empty array.
+POST del_whitelist {url:JSON.stringify([URL,...])} -> code0/-1
+POST add_whitelist {url:URL,session:STRING} -> code0/-1
+  Session is mandatory. It is obtained by the stock blocked-site page via
+  ubus antiy_url.getSession({timeout:600,url:HTTP_HOST}). The handler verifies
+  the session through antiy_url.verifySession before adding. Verification
+  Success requires verifySession.code==0. Failure MAY RETURN CODE0 WITHOUT
+  ADDING; require readback membership and preserve the pre-existing list.
+  An arbitrary domain field without the verified session is not sufficient.
+  session is short-lived sensitive authorization, never export/log it.
+  Source: luci/view/url_fw/home.htm first40 lines and controller lines201–235.
+  Do not invent a generic unverified whitelist-adder.
+
+SECURITY LOG — luci/controller/api/milog.lua and XQMiwifiLog.lua
+GET mi_log/get_onoff -> {code:0,msg:'success',info:{on:0|1}}
+POST mi_log/set_onoff {on:'0'|'1'} -> code0; reloads miwifi-logd.
+GET mi_log/overview -> {code:0,info:{risk_cnt,sys_cnt,nic_cnt}}
+  Actual live on1, risk_cnt2,sys_cnt29,nic_cnt454.
+GET mi_log/get_logs {type:'risk'|'sys'|'nic',tsclient:UNIX_SECONDS,
+  duration:DAYS,offset:INTEGER,limit:INTEGER}
+  tsclient and duration required (otherwise1523). type defaults sys,
+  offset defaults0, limit defaults10. Source has no upper bound; panel should
+  cap page size, offset/days. Query uses timestamp<=tsclient and recent days.
+  -> {code:0,msg,total,count,info:[{date:'YYYY-MM-DD',data:[
+    {time:'HH:MM',ts,id,type,msg,ext,mac,dev},...
+  ]},...]}. Fields vary per event. Times/dates use router timezone.
+POST mi_log/del_logs {type:'ids'|'duration',value:STRING,
+  filter:'risk'|'sys'|'nic'?}
+  CORRECTED VM map proves type=='duration' selects days; any other type
+  selects IDs. IDs: type='ids',value=JSON array of known decimal IDs.
+  get_ids_from_str strips brackets and extracts decimal IDs; filter ignored
+  in the IDs branch. Days: type='duration',value=integer DAYS, optional filter
+  narrows sec_<filter> prefix. Without filter all tags in the day range may
+  be removed. del_by_days selects TIMESTAMP>=DATE(now,-DAYS,localtime), so
+  this deletes RECENT days, not records older than N days.
+  Deletion is irreversible: require user's explicit selected-record review.
+
+CENTRAL / BLUETOOTH MESH
+The public MIoT spec for xiaomi.router.rd08 has services1,2,5,7 only, no
+Bluetooth gateway property. Cached public response: security-rd08-miot-spec.json.
+URL: https://miot-spec.org/miot-spec-v2/instance?type=urn:miot-spec-v2:device:router:0000A036:xiaomi-rd08:1
+Native firmware miio_bt RPC table includes miIO.ble_gateway_state at414d8c,
+miIO.ble_gateway_enable at415a3c, miIO.bt_gateway_version at414b6c.
+Exact refs: security-bt-rpc-refs.json. Enable handler explicitly gets request
+params object and integer state field; no write has been sent.
+State getter returns result:{state:INTEGER}. Native setter payload:
+  {id:1,method:'miIO.ble_gateway_enable',params:{state:0|1}}
+Do not invoke setter through an unverified/failed transport.
+Two exact fixed live getters were tried via request_miio POST payload JSON:
+  {id:1,method:'miIO.ble_gateway_state',params:{}}
+  {id:1,method:'miIO.bt_gateway_version',params:{}}
+BOTH returned {code:-1,msg:''}; security-bt-live.json records sanitized
+requests and answers. There is no usable BT state through this legacy path.
+Static dispatch: thrifttunnel case6 jump at0xbc04 -> GOT0x41bb8 ->0x1f694,
+constructs a MiioThrift client to localhost:9098 with20-second timeouts.
+The supplied rootfs has no usr/sbin/miiothrift, usr/bin/miiothrift or
+etc/init.d/miiothrift. This supports an unavailable legacy backend, rather
+than proof that the native BT handler lacks the function. A cloud/MIIO or
+central-container connection with proper device/account authorization would
+be a separate transport; no account keys/token were obtained here.
+Do not display code-1 as gateway-off. Return unavailable and explain transport.
+
+UTILITY
+security-inspect.py prints per-prototype constants and captures or disassembles
+a selected prototype index. For captures it derives max GETUPVAL/SETUPVAL
+index instead of trusting Jinzear's inconsistent metadata; two assertions
+verify device_security http/cjson captured registers. All script reads offline.
+fate123.py provides the corrected local loader: `from fate123 import j`.
+It never edits shared Jinzear and is only verified for this firmware image.
+The RD08 Lua VM table at0x35ae8 maps raw19/20 to equality handler0x16ea8,
+raw3/5 to LT handler0x16f48, raw22/23 to LE handler0x16f94.
+security-fate-opcodes.py/json asserts relocated table targets and exact
+machine cset eq/lt/le at0x160c8/0x15f90/0x15680. fate123.py selftests actual
+stock add_device type string/table EQ, datatypes.port inclusive0..65535,
+and delLogs duration EQ. This corrects four upstream alias mapping errors.
+Parameter names and field schemas above are unchanged after rechecking.
+
+FINAL URL SESSION CHECK (2026-11-09)
+The stock page is served by pinned TLS8900 (etc/nginx/conf.d/8900.conf),
+not ordinary443 Host forwarding. It rewrites to /cgi-bin/luci/url_fw.
+On actual RD08 the HTML domain matched, but default session='0' remained.
+get_status/overview/show_whitelist read UCI; they do not prove backend health.
+libdpi_antiy.so getSession0xcf00 accepts arbitrary URL and timeout: finds URL,
+refreshes timeout*1000 or constructs a random uint64 session via emplace.
+No blocked-site/category requirement. verifySession0xbe08 compares URL/token
+then erases it on success: do not use as preflight before add_whitelist.
+Extension0xc488 loads AVLM_Load_URL('/etc/antiy'); failure prevents ubus service
+registration. HTML alone cannot distinguish absent extension vs ubus failure.
+Healthy service: stock page permit -> single add_whitelist -> list readback.
+No available regular-admin bypass or service repair setter was established.

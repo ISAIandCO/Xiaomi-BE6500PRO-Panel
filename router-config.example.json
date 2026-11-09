@@ -1,0 +1,7 @@
+{
+  "host": "192.168.31.1",
+  "httpsFingerprint256": "REPLACE_WITH_YOUR_ROUTER_CERTIFICATE_SHA256",
+  "model": "RD08",
+  "writeFirmware": "1.1.123",
+  "port": 18650
+}

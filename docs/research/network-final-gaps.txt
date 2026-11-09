@@ -1,0 +1,106 @@
+RD08 1.1.123: final parental-quota and offline-device research
+2026-11-08. Offline analysis only; no router mutation or root work.
+
+PARENTAL QUOTA UNITS ARE NOW PROVEN
+Native consumer usr/sbin/mipctld (stripped AArch64 ELF):
+  literal time_quota at file offset/VA0x38f49
+  cross-reference0x1ab4c materializes this key
+  parsed integer stored at0x1abb8: str x0,[x23,#0x70]
+  later consumption:
+    0x1ae0c ldr x1,[x23,#0x70]
+    0x1ae10 mov x2,#0x3c
+    0x1ae18 mul x1,x1,x2
+    0x1ae1c ldr x2,[x29,#0xa8]
+    0x1ae20 cmp x2,x1
+    0x1ae24 cset w1,ge
+  The same native statistics request uses interval86400 at0x1ade0–0x1adfc.
+Thus quota is stored in minutes and multiplied by60 for comparison with
+accumulated seconds. This is independent native-consumer evidence, not an
+inference from the default120 or an app-label translation.
+Reproduction: py -3.13 research/network-native-quota.py
+The script asserts both the load/store offset and multiply60 instructions.
+Full local xref disassembly and daemon SHA256 are in network-native-quota.txt.
+
+IMPLEMENTATION
+network-plans.mjs parentalApps now accepts optional quotaMinutes integer1..1440.
+When supplied, native time_quota is emitted as a JSON integer with that value.
+Omitting quotaMinutes omits time_quota and lets native merge preserve the
+current setting. Raw quota/time_quota browser fields are rejected. New tests
+cover conversion, omission,0/-1/1441/fraction/injection rejection;8 tests pass.
+
+ZERO AND NEGATIVE VALUES, USING CORRECTED FATE/Z COMPARATORS
+research/fate123.py fixes the original Jinzear comparator mapping for this ROM.
+Corrected disassembly: network-corrected-quota.txt.
+setSingleClass in XQParentControlV2.lua:
+  PC2 gets input.time_quota.
+  If it is supplied, isInt is called (PC5–9).
+  PC11 is LT A=1, input.time_quota,0; PC12 jumps to PC29 false return.
+  Therefore negative values are rejected; zero is accepted by the native API.
+  PC38–42 stores any supplied quota, and zero is truthy in Lua, so0 is stored.
+Zero is NOT a reset/unlimited token: native comparison is usedSeconds>=quota*60,
+which is immediately satisfied for quota0. With the category enabled this is
+zero time allowance (full restriction), not restoring defaults.
+
+setApp's PC67 is corrected EQ A=1,merged.time_quota,-1. It skips creation of a
+new user_class_config row for that merged internal sentinel. A caller cannot
+reach that path by explicitly passing -1 because setSingleClass rejects a
+negative input first. No native reset/delete operation is called by setApp.
+Therefore neither -1 nor0 should be presented as a reset option.
+The shipped module deliberately exposes positive minute quotas only. Full
+zero-allowance editing would need a clearly named control and lockout review;
+it was not added silently. Disabling a category uses enable=false and preserves
+its quota/app list.
+
+OFFLINE GENERAL-CLIENT REMOVAL: LOCAL CONTRACT STILL NOT FOUND
+Decoded every firmware Lua file using the corrected loader:
+  215 Fate/Z files,10 plaintext files,0 unreadable.
+Search was over decoded constants recursively, not rg over encrypted Lua.
+Evidence and reproducible script: network-device-constants.json/.py.
+Patterns covered offline, delete/del/remove near dev, and forget.
+
+Matches that must not be confused with removing a client record:
+  device_security/del_device removes IoT firewall protection enrollment.
+  misystem/parctl_delete -> old XQParentControl.delete_device_info edits an old
+    parental-control profile, not the general client list.
+  XQMultiWanPolicy.deleteDevPolicy removes a per-device WAN routing rule.
+  XQLanWanUtil del_device and luci.model.network.del_device remove interfaces
+    from bridges/networks, not an offline client record.
+  xqsystem/set_mac_filter changes access/filter permission data, not deletion.
+No deletion-like export exists in XQDeviceUtil or XQController.
+
+NATIVE TRAFFICD EVIDENCE
+The daemon contains string hw_delete at0x11768, but it is an internal cleanup
+function/log label, not a public ubus method name in its registration table.
+trafficd ubus method table, virtual address0x23530:
+  method 'hw',handler0x9bb0,policy0x23370,n_policy9.
+Policy names/types:
+  hw:string,tree:bool,leaf:bool,debug:bool,detail:bool,wlan:bool,mlo:bool,
+  filter:table,port:bool.
+No delete argument is registered for that method.
+The 'ip' method atVA0x23500 uses policy0x23420,n_policy3:
+  ip:string,debug:bool,delete:bool.
+That concerns an IP entry, not the general hardware/client record; do not turn
+it into an 'offline device delete' button without deeper semantic proof.
+
+The native strings also contain 'HW CLEAN:hw(%s) offline,clean it' and
+'clean offline hw num: %d', showing automatic offline cleanup exists.
+miio_client literals inspected did not reveal a general-client delete RPC;
+its offline/delete names relate to miIO transport/AP/error cleanup.
+sysapi is a shell script, whose delete operations are firewall/IP filter edits.
+
+Official RD08 changelog says Xiaomi Home added offline-device deletion, but
+the complete downloaded RD08 management plugin is still absent locally.
+The existing APK archive is the common router-initialization plugin. The exact
+cloud/native app command for general-client deletion remains unproven.
+Primary source of the claimed app feature:
+https://cdn.cnbj1.fds.api.mi-img.com/miwifi/c6332534-d513-4b8d-98b1-eac663c1dbbe.html
+Do not claim the function is impossible; its callable local contract is missing.
+
+PUBLIC MIOT SPEC CROSS-CHECK
+The cached official RD08 spec research/security-rd08-miot-spec.json exposes
+Router service2 speeds/count/client-id events, no offline-client deletion action.
+Property2.24 device-inactive-config is a WRITE-ONLY string (not read/write),
+and property2.23 device-inactive-time has no direct access, range1..60 minutes;
+both relate to long-time-inactive events. Configuring that property's payload
+must not be treated as client-record deletion without its missing schema.
+Firmware etc/config/miio_spec confirms export of2.24 as string, not semantics.

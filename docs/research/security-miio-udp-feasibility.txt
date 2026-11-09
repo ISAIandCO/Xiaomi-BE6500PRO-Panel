@@ -1,0 +1,179 @@
+RD08 1.1.123: owner-token local MIIO transport to Bluetooth gateway
+Verified offline 2026-11-09. No live network call, token retrieval, old credential
+reuse, firmware execution, setting change, root or bypass in this pass.
+
+CONCLUSION
+
+The stock binaries contain an actual miio_client -> miio_bt RPC path. It is not
+only a collection of method-name strings and is not restricted to Central's
+UNIX socket. An optional normal authenticated UDP transport with an owner-
+supplied exact self MIIO token is justified. Availability on the running router
+remains conditional: first authenticate state/version getters and honor native
+permission/errors/timeouts. No token was supplied for a hardware test on Nov9.
+Do not describe this as live-verified Bluetooth control or a way to obtain a key.
+
+This corrects the earlier overly absolute Central-only conclusion in
+security-miio-transport.txt: miio_bt has TWO active registration paths, the
+ordinary OT connection and the Central UNIX connection.
+
+REPRODUCIBLE INPUT
+
+Official 1.1.123 extracted root at:
+  Прошивки/miwifi_rd08_1.1.123/02_root/ubi_rootfs_files
+usr/bin/miio_client SHA256:
+  e7bb0d9cd8c449d8d936fab9820f04d3efb3b20297e63521ce7b2c3ed33f25d5
+usr/sbin/miio_bt SHA256:
+  bb1d00093ef3a61d2b886c0fccbfda01b3706050dc4f580a2c4bbef06c5c1ca4
+Addresses below are ELF virtual addresses, not file offsets. Data PT_LOAD
+mappings differ: miio_bt table VA0x517d18 is file offset0x107d18. Do not use
+VA-0x400000 for that data segment. security-miio-trace.py seeks bounded ranges
+through actual PT_LOAD metadata and resolves import relocations. Its linear
+annotation is navigation only; branch/control-flow claims below were checked
+against the exact instructions. No code was executed/emulated.
+
+ACTUAL FORWARDING EVIDENCE
+
+1. The UDP parser is in miio_client, not a web/LuCI tunnel.
+   0x43d994 opens socket(AF_INET,SOCK_DGRAM,0), constructs port from settings,
+   binds INADDR_ANY (0x43d9fc..0x43da1c). Initialization0x432608..0x43260c stores
+   low16 value54321 at context+0x80;0x430ccc..0x430ce0 passes that field to the
+   UDP opener. Public python-miio fixes the same port. Native packet magic is
+   checked at0x432b88..0x432b94: halfword0x3121 on little-endian AArch64 is wire
+   bytes21 31. 0x432bb4 reads network packet length, bounds body<=0x558 and reads
+   timestamp. The parser stores and compares all eight identity bytes[4..12].
+
+2. Native token authentication is real, not a guessed transparent relay.
+   otu_packet_parser_decrypt at0x432c94 rejects timestamp differences>60s.
+   0x432d4c..0x432d7c inserts the selected token in header checksum bytes16..32,
+   hashes the packet through0x443d04, and compares all16 digest bytes. On
+   mismatch it takes the sign-wrong failure branch. The encrypted payload is
+   decrypted at0x432e14..0x432e58 through0x443c9c; that routine selects128-bit
+   AES decryption at0x443ccc..0x443cec, followed by padding removal. Successful
+   RPCs are passed to ot_down_rpc_delegate_handle at0x430864 ->0x434eec.
+   0x430828..0x430838 stores authclass1 for is_in_local_net=true, authclass2 for
+   false. is_in_local_net at0x42e7e4 compares the address/netmask at0x42e880..98.
+
+3. Unknown methods reach a registered external hook through the ordinary
+   delegate pipeline. The main initialization at0x4071f8..0x407200 registers
+   callback table0x4bc740 through0x41b7f8. Table offset0x20 (VA0x4bc760) contains
+   miio_ext_rpc_hook_default0x406750. The default hook fetches a bounded pending
+   external RPC via0x423c28 (0x406888), then calls0x40a84c (0x406a08).
+   Generic delegate execution0x434254 distinguishes registered vs external
+   methods; external callback is invoked at0x4348b0..0x4348c0. There are real
+   policy denial/error branches at0x434728..0x43481c and registered-handler
+   policy checks at0x434624..0x4346f4. Their existence is a reason to capability-
+   check and display native denial; this report does not claim all externally
+   named methods must be accepted for every runtime policy/configuration.
+
+4. Trusted source marking is done by miio_client, not by callers.
+   0x40a84c reads authclass at context+0x18. Class2 copies literal cloud from
+   0x4919a1; class1 copies local from0x4976c7. It rejects a user-supplied
+   "miio_client_from": substring at0x40a894..0x40a8a4 and appends its own field
+   at0x40a8f0..0x40a904. It then calls ot_agent_send_cmd_sock0x40a484.
+   That sends method payloads through method_local_broadcast_msg0x40a240;
+   0x40a37c..0x40a3b4 sends to the accepted BT client fd at client-context+0x5c,
+   in addition to ordinary OT-agent peers. Do not add/spoof this field in a
+   panel request, and do not treat it as an auth credential.
+
+5. The BT client endpoint actually exists and matches both processes.
+   miio_client0x409aa0..0x409abc opens(AF_INET,SOCK_STREAM,0), binds
+   127.0.0.1:54323 at0x409fc4..0x40a004 and listens at0x40a098..0x40a0a0.
+   bt_conn_listen_handler0x409418 accepts this connection and stores its fd at
+   context+0x5c. Separately, miio_bt's rpc_agent_ot_create0x406ea0 sets AF_INET,
+   htons54323 (0x406f10..0x406f1c), inet_addr("127.0.0.1")0x406f20..0x406f40,
+   and calls ot_connect0x406a8c. That opens TCP and calls connect at0x406aa8..
+   0x406acc, then registers read callback0x406c58 at0x406b58..0x406b64.
+
+6. Received TCP JSON reaches the real class1 method table.
+   rpc_agent_ot_message_callback0x406c58 reads/parses JSON boundaries and calls
+   mible_rpc_down wrapper0x4150a4 with class1 at0x406db8..0x406dc4 (and its
+   single-message branch). 0x4150a4 constructs the context and calls0x414448.
+   arch_rpc_agent_init0x407508 registers OT class1/callback0x4073a4 using
+   mible_rpc_agent_register0x415ff4 at0x407528..0x407538.
+   Its four-entry signed-byte jump table at0x4dfa10 maps class1 to0x41610c,
+   which selects method table0x517d18. Classes2/3 select0x517168; class4 has
+   separate registration. The class1 session stores that table and indexes
+   it via0x414120 (0x416118..0x416158).
+   mible_rpc_down0x414448 finds the class1 link, parses JSON, calls method
+   lookup rpc_req_validate0x413f44 on that link's table, and queues the resolved
+   callback. rpc_consume_thread invokes the queued callback at0x41649c..
+   0x4164a8. This proves actual registration and dispatch, not string overlap.
+
+7. Class1 table entries and exact native contracts:
+   VA0x517d48: "miIO.bt_gateway_version"0x4e086f -> callback0x414b6c.
+     params:{}; result object with app_version, app_sdk, build_feature,
+     cm_build_info strings. bt_gateway_version is included when gateway context
+     exists; otherwise app_version falls back to4.0.11_0000. Getter reads and
+     constructs JSON, not a configuration setter. Source literal SDK4.0.11_0007
+     does NOT mean Central software-pack version0.11.5 shown by Xiaomi Home.
+   VA0x517d98: "miIO.ble_gateway_state"0x4e08cc -> callback0x414d8c.
+     params:{}; result:{state:0|1}; reads configuration via0x41393c. That helper
+     normalizes nonzero gateway_enable to1 or returns0 when state=disable.
+   VA0x517d88: "miIO.ble_gateway_enable"0x4e08b4 -> callback0x415a3c.
+     params:{state:integer}; module restricts this to exactly0/1 from a boolean.
+     Native setter reads params.state via0x4123bc, updates/persists gateway
+     state through0x416be8/0x4159f4, and emits result:["ok"] through
+     0x415b6c..0x415b70 ->0x415364 ->0x415220. Errors use ordinary JSON error.
+     Never test this mutation merely to inspect support.
+   These handler bodies do not check cloud origin; context class is logged.
+   There is a separate cloud-origin helper0x415930, but no direct BL/B caller
+   was found in this image. That alone is not a proof of no indirect callers;
+   the stronger evidence is the checked class1 registration and handler paths.
+
+8. Central connection remains a separate path. miio_bt0x406f68 opens
+   AF_UNIX/SOCK_SEQPACKET to/tmp/miot_central/bt_gateway_server.sock and injects
+   its frames with class4. Its existence does not replace the class1 TCP path.
+
+RUNTIME / AUTH BOUNDARY
+
+etc/init.d/miio_bt starts Bluetooth only when miio_ot.ot.bound=1. It prefers
+/data/other/miio_mpkg/bin/miio_bt if present over/usr/sbin/miio_bt, so runtime
+package updates can change the on-disk image's contracts. An existing bound
+router and exact current self token are prerequisites; no new Xiaomi login is
+intrinsic to the UDP packet exchange. Getting that token through unavailable
+local APIs, re-binding, reading privileged router files or obtaining account
+certificates is outside this implementation. The web password/stok is not it.
+
+The Nov8 legacy MiioThrift9098 tunnel getter failure does not contradict this
+separate normal UDP transport. The Nov8 miiolist credential getter returned no
+self token; it was not repeated. No token or live configuration was consulted
+on Nov9. A UDP timeout/permission denial must remain a clear failure, not a
+claim that the gateway is disabled or a reason to attempt spoofing/cloud mode.
+
+PRIMARY PROTOCOL REFERENCE (retrieved2026-11-09)
+
+https://github.com/rytilahti/python-miio/blob/master/miio/protocol.py
+  Utils verifies16-byte tokens; derives AES key=MD5(token), IV=MD5(key+token).
+  EncryptionAdapter serializes JSON plus NUL, AES-128-CBC with PKCS7. Header is
+  32bytes: magic/length, four high identity/reserved bytes, low32bit device ID,
+  timestamp, checksum. Checksum is MD5(first16header+token+encryptedpayload).
+  RD08 native bytewise identity checks require preserving all eight bytes4..12;
+  the panel accepts an optional exact decimal uint64 self DID rather than
+  silently truncating newer identities. On standard32bit devices the high
+  four bytes remain zero. No unverified high word is invented.
+https://github.com/rytilahti/python-miio/blob/master/miio/miioprotocol.py
+  MiIOProtocol fixes UDP54321 and sends32-byte21 31 00 20 +28 ff handshake.
+  It learns device ID/timestamp, then sends encrypted JSON id/method/params.
+  This upstream client retries commands; the panel intentionally sends a
+  setter once and requires explicit fresh state checking after any failure.
+
+IMPLEMENTED ARTIFACT / VALIDATION
+
+6500pro_router-panel/miio-local.mjs exports MiioLocal({host,token,deviceId?,
+timeoutMs?}). Only literal RFC1918 IPv4, fixed UDP54321, packet<=4096, timeout
+100..10000ms. request enum bleState/bleVersion/bleEnable only; enable params
+exactly{enable:boolean}. getState->{enabled}, getVersion->{version},
+setEnabled(boolean)->verified{enabled}. The mutation requires this instance's
+prior successful state getter, exact["ok"] ack and fresh matching readback.
+Failure invalidates setter capability; no automatic retry. close() aborts
+pending sockets and zeroes token/key/IV Buffers. No secret logging/persistence.
+Incoming packets require correct host/port, lengths/magic, full device identity,
+timestamp window, token checksum, decryptable padding/JSON and matching replyid.
+Errors return fixed descriptions/numeric native code without echoing payloads.
+
+node --test test/miio-local.test.mjs:9/9 pass on simulated datagrams. Covers
+normal getter normalization,64bit identity, strict enum/params/host/key bounds,
+single-send mutation/readback, ack mismatch, timeout capability invalidation,
+signature/id/device/time/shape failures, remote-message secret suppression,
+wrong-device hello, peer address/port filtering, header/size bounds and
+close/concurrency. No live support or performance claim.

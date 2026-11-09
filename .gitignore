@@ -1,0 +1,32 @@
+# Local router identity and credentials
+router-config.json
+router-config.json.*
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local exports, backups, captures and vendor binaries
+backups/
+exports/
+downloads/
+logs/
+*.log
+*.har
+*.pcap
+*.pcapng
+*.bin
+*.mpk
+*.apk
+*.tar
+*.gz
+*.zip
+!examples/rd08-status.zip
+
+node_modules/
+coverage/
+.DS_Store
+Thumbs.db

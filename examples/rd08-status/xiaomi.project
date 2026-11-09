@@ -1,0 +1,22 @@
+# Template only: replace every REPLACE_* value with your registered Xiaomi data.
+plugin_id = "REPLACE_REGISTERED_APP_ID";
+name = "RD08 Status Example";
+introduction = "Reads uptime and writes status.json inside its own directory.";
+summary = "Local status example; no network changes";
+installed_icon = "https://example.invalid/REPLACE_ICON.png";
+detail_image = "https://example.invalid/REPLACE_DETAIL.png";
+market_icon = "https://example.invalid/REPLACE_MARKET_ICON.png";
+developer = "REPLACE_REGISTERED_DEVELOPER";
+version = "1.0.0";
+control_url = "https://example.invalid/REPLACE_REGISTERED_CONTROL_PAGE/";
+zip_path = "./payload/";
+pem_path = "/REPLACE_EXTERNAL_PRIVATE_DIRECTORY/client.pem";
+key_path = "/REPLACE_EXTERNAL_PRIVATE_DIRECTORY/client.key";
+sdk_level = "5";
+supported_rom = "miwifi_rom_2";
+access_userdata = "false";
+support_download = "false";
+support_vpn_operation = "false";
+support_connected_device_info = "false";
+support_usb_disk_mount = "false";
+support_notify_file_changed = "false";

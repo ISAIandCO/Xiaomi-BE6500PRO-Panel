@@ -1,0 +1,127 @@
+{
+  "registered_123": 656,
+  "registered_96": 663,
+  "added": [
+    "misystem/mipctl_get_temp_allow",
+    "misystem/mipctl_get_user_info",
+    "xqnetwork/ddns_add",
+    "xqnetwork/ddns_del",
+    "xqnetwork/ddns_get_server",
+    "xqnetwork/ddns_switch",
+    "xqnetwork/ddns_update",
+    "xqnetwork/get_aimesh_config",
+    "xqnetwork/get_fault_diag_result",
+    "xqnetwork/set_aimesh_config",
+    "xqnetwork/start_fault_diag"
+  ],
+  "removed": [
+    "xqnetwork/add_server",
+    "xqnetwork/del_server",
+    "xqnetwork/get_server",
+    "xqnetwork/server_switch",
+    "xqsystem/get_firewall_enable",
+    "xqsystem/get_ipfilter_info",
+    "xqsystem/get_macfilter_info",
+    "xqsystem/get_spi_firewall",
+    "xqsystem/get_wanping_firewall",
+    "xqsystem/set_firewall_enable",
+    "xqsystem/set_ipfilter_enable_mode",
+    "xqsystem/set_ipfilter_rule",
+    "xqsystem/set_ipfilter_rules",
+    "xqsystem/set_macfilter_enable_mode",
+    "xqsystem/set_macfilter_rule",
+    "xqsystem/set_macfilter_rules",
+    "xqsystem/set_spi_firewall",
+    "xqsystem/set_wanping_firewall"
+  ],
+  "parameter_changes": [
+    {
+      "route": "xqnetwork/ddns_edit",
+      "old": [
+        "checkinterval",
+        "domain",
+        "enable",
+        "forceinterval",
+        "id",
+        "password",
+        "username"
+      ],
+      "new": [
+        "checkinterval",
+        "domain",
+        "forceinterval",
+        "id",
+        "iptype",
+        "password",
+        "username",
+        "wanindex"
+      ]
+    }
+  ],
+  "files": [
+    {
+      "file": "usr/lib/lua/luci/controller/api/xqnetwork.lua",
+      "sha256": {
+        "1.1.123": "d815e9fd9a96273ab6a1fe19dff7555c56a8722e22b5aca8960266ba29b1bf9a",
+        "1.1.96": "7a70bcc34ef2e8059fdd40a2f65b55ccf21a0340937b4126fac8d8a4c9ae36c4"
+      },
+      "identical": false
+    },
+    {
+      "file": "usr/lib/lua/luci/controller/api/xqsystem.lua",
+      "sha256": {
+        "1.1.123": "f17409f5a8541889b8e808694bb91713ea7167047665f92345f5e1a93eb011a4",
+        "1.1.96": "749a38d4d5cf8154bedd68dd78013ad26bfc3ce91979fca77a7aede6932a8f3b"
+      },
+      "identical": false
+    },
+    {
+      "file": "usr/lib/lua/luci/controller/api/misystem.lua",
+      "sha256": {
+        "1.1.123": "d3c0f682e98d21a4a699b42cd5eea0958316b262fdf130723f8d9391531124dc",
+        "1.1.96": "b2c2e8fdcd17197becdadb6b5e70bb7c4a9b714210f02a0d9a8730afb736a6db"
+      },
+      "identical": false
+    },
+    {
+      "file": "usr/lib/lua/xiaoqiang/module/XQFirewall.lua",
+      "sha256": {
+        "1.1.123": "a38f964fe8b7cfe8f8039041c376a50c088a3c585e34e7139cb18593856ae717",
+        "1.1.96": "a38f964fe8b7cfe8f8039041c376a50c088a3c585e34e7139cb18593856ae717"
+      },
+      "identical": true
+    },
+    {
+      "file": "usr/lib/lua/xiaoqiang/util/XQSecureUtil.lua",
+      "sha256": {
+        "1.1.123": "cdd482582b996490c8b1687aba7de8ea6ebd481d5a27ce807169aef45f4a5750",
+        "1.1.96": "ad6ffbc7e42bb983588d3bd01c375a192019372ca4142551a313422de114c75d"
+      },
+      "identical": false
+    },
+    {
+      "file": "usr/sbin/cab_meshd",
+      "sha256": {
+        "1.1.123": "7515cdaa1cc17ed7dc8c68a4dbd9ba6a318bac01f07a69e6a0003f4391f888b5",
+        "1.1.96": "7515cdaa1cc17ed7dc8c68a4dbd9ba6a318bac01f07a69e6a0003f4391f888b5"
+      },
+      "identical": true
+    },
+    {
+      "file": "usr/bin/miio_client",
+      "sha256": {
+        "1.1.123": "e7bb0d9cd8c449d8d936fab9820f04d3efb3b20297e63521ce7b2c3ed33f25d5",
+        "1.1.96": "e7bb0d9cd8c449d8d936fab9820f04d3efb3b20297e63521ce7b2c3ed33f25d5"
+      },
+      "identical": true
+    },
+    {
+      "file": "usr/sbin/smartcontroller",
+      "sha256": {
+        "1.1.123": "03638ce04b3e543abcf436bea0e5913ba0acc824a75be37feef2cfa2177e4058",
+        "1.1.96": "03638ce04b3e543abcf436bea0e5913ba0acc824a75be37feef2cfa2177e4058"
+      },
+      "identical": true
+    }
+  ]
+}
